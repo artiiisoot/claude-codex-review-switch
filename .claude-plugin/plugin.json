@@ -1,0 +1,11 @@
+{
+  "name": "codex-review-switch",
+  "version": "0.5.1",
+  "description": "Switch above the prompt for the Codex stop-time review gate, with colored Claude and Codex marks in the transcript",
+  "author": {
+    "name": "artiiisoot"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/artiiisoot/claude-codex-review-switch",
+  "types": "./types/index.d.ts"
+}

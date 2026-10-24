@@ -1,0 +1,5 @@
+{
+  "name": "artiiisoot",
+  "owner": { "name": "artiiisoot" },
+  "plugins": [{ "name": "codex-review-switch", "source": "./" }]
+}
