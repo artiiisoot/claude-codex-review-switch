@@ -1,7 +1,7 @@
 {
   "name": "codex-companion-janitor",
-  "version": "0.1.0",
-  "description": "Collects Codex Companion Task chats into the Codex Companion section at 18:00 and purges them at 18:10",
+  "version": "0.2.0",
+  "description": "Collects Codex Companion Task chats into the Codex Companion section at 18:00 and purges them at 18:10, clearing leftovers first",
   "author": { "name": "artiiisoot" },
   "license": "MIT",
   "repository": "https://github.com/artiiisoot/claude-codex-review-switch"

@@ -3,14 +3,15 @@
 #
 #   janitor.sh collect   move "Codex Companion Task:" chats into the section
 #   janitor.sh purge     delete the chats sitting in that section
-#   janitor.sh run       collect before :05, purge after (what launchd calls)
+#   janitor.sh run       purge, then collect when before :05 (what launchd calls)
 #   janitor.sh install   write the launchd job (18:00 + 18:10 daily)
 #   janitor.sh uninstall remove the launchd job
 #   janitor.sh status    section id, pending counts, job state
 #
 # Env: CODEX_HOME (default ~/.codex), SECTION_NAME (default "Codex Companion"),
 #      TITLE_PREFIX (default "Codex Companion Task:"), TRASH_DAYS (default 7),
-#      DRY_RUN=1 to print what purge would do and change nothing.
+#      DRY_RUN=1 to print what purge would do and change nothing,
+#      FAKE_MINUTE to override the minute "run" branches on (tests).
 set -eu
 
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -113,7 +114,10 @@ cmd_purge() {
 
 cmd_run() {
   # One launchd job for both times: before :05 is the 18:00 firing, after is 18:10.
-  if [ "$(date +%M)" -lt 5 ]; then cmd_collect; else cmd_purge; fi
+  # Purge runs first either way, so leftovers from a missed 18:10 (laptop asleep,
+  # machine off) are cleared before today's batch is collected.
+  cmd_purge
+  if [ "${FAKE_MINUTE:-$(date +%M)}" -lt 5 ]; then cmd_collect; fi
 }
 
 cmd_install() {

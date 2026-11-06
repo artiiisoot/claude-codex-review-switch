@@ -58,4 +58,21 @@ assert "index kept"        "$(grep -c '"id":"t3"' "$H/session_index.jsonl")" 1
 assert "trash holds copy"  "$(find "$H/.janitor-trash" -name 't1.jsonl' | wc -l | tr -d ' ')" 1
 
 sh "$J" purge | grep -q 'nothing to delete'
+
+# run at :00 purges leftovers from a missed 18:10 first, then collects today's batch.
+sqlite3 "$H/state_5.sqlite" "
+INSERT INTO threads (id,rollout_path,title,thread_section_id) VALUES
+  ('t6','$H/sessions/t6.jsonl','Codex Companion Task: leftover','sec-1');
+INSERT INTO threads (id,rollout_path,title) VALUES
+  ('t7','$H/sessions/t7.jsonl','Codex Companion Task: fresh');"
+echo '{}' > "$H/sessions/t6.jsonl"; echo '{}' > "$H/sessions/t7.jsonl"
+FAKE_MINUTE=0 sh "$J" run >/dev/null
+assert "leftover purged"   "$(q "SELECT count(*) FROM threads WHERE id='t6';")" 0
+assert "fresh collected"   "$(q "SELECT thread_section_id FROM threads WHERE id='t7';")" sec-1
+
+# run at :10 only purges.
+FAKE_MINUTE=10 sh "$J" run >/dev/null
+assert "fresh purged"      "$(q "SELECT count(*) FROM threads WHERE id='t7';")" 0
+assert "survivors intact"  "$(q "SELECT count(*) FROM threads;")" 3
+
 echo "all assertions passed"
