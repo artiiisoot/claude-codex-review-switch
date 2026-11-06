@@ -26,6 +26,7 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
 STATE_DB=""
 HIST_DB=""
+CATALOG_DB=""
 INDEX="$CODEX_HOME/session_index.jsonl"
 TRASH="$CODEX_HOME/.janitor-trash"
 
@@ -37,6 +38,10 @@ find_dbs() {
   # state_N.sqlite / thread_history_N.sqlite: take the highest N present.
   STATE_DB=$(ls "$CODEX_HOME"/state_*.sqlite 2>/dev/null | sort -V | tail -1 || true)
   HIST_DB=$(ls "$CODEX_HOME"/thread_history_*.sqlite 2>/dev/null | sort -V | tail -1 || true)
+  # The sidebar list is drawn from local_thread_catalog in sqlite/codex.db, a
+  # separate database: deleting from state_*.sqlite alone leaves the row visible.
+  CATALOG_DB="$CODEX_HOME/sqlite/codex.db"
+  [ -f "$CATALOG_DB" ] || CATALOG_DB=""
   [ -n "$STATE_DB" ] || die "no state_*.sqlite in $CODEX_HOME"
   command -v sqlite3 >/dev/null || die "sqlite3 not found"
 }
@@ -44,6 +49,32 @@ find_dbs() {
 section_id() {
   sqlite3 "$STATE_DB" \
     "SELECT id FROM thread_sections WHERE name = '$(sq "$SECTION_NAME")' LIMIT 1;"
+}
+
+# Catalog rows whose thread is already gone from the state DB: what the sidebar
+# still shows after a thread was deleted anywhere else.
+catalog_orphans() {
+  [ -n "$CATALOG_DB" ] || { echo 0; return 0; }
+  sqlite3 "$CATALOG_DB" "ATTACH '$(sq "$STATE_DB")' AS s;
+    SELECT count(*) FROM local_thread_catalog
+     WHERE display_title LIKE '$(sq "$TITLE_PREFIX")%'
+       AND thread_id NOT IN (SELECT id FROM s.threads);"
+}
+
+catalog_prune() {
+  [ -n "$CATALOG_DB" ] || { echo 0; return 0; }
+  n=$(catalog_orphans)
+  if [ "$n" -gt 0 ]; then
+    sqlite3 "$CATALOG_DB" "ATTACH '$(sq "$STATE_DB")' AS s;
+      DELETE FROM local_thread_catalog_scan_entries WHERE thread_id IN (
+        SELECT thread_id FROM local_thread_catalog
+         WHERE display_title LIKE '$(sq "$TITLE_PREFIX")%'
+           AND thread_id NOT IN (SELECT id FROM s.threads));
+      DELETE FROM local_thread_catalog
+       WHERE display_title LIKE '$(sq "$TITLE_PREFIX")%'
+         AND thread_id NOT IN (SELECT id FROM s.threads);"
+  fi
+  echo "$n"
 }
 
 cmd_collect() {
@@ -76,6 +107,7 @@ cmd_purge() {
   if [ "${DRY_RUN:-}" = 1 ]; then
     echo "purge (dry run): would delete $n chat(s):"
     sqlite3 "$STATE_DB" "SELECT id || '  ' || name FROM threads WHERE $where;"
+    echo "purge (dry run): would drop $(catalog_orphans) stale sidebar row(s)"
     return 0
   fi
 
@@ -85,6 +117,7 @@ cmd_purge() {
   # Rollouts and DB copies go to the trash bin, not straight to rm, so a bad
   # match is recoverable for TRASH_DAYS.
   cp "$STATE_DB" "$bin/$(basename "$STATE_DB").bak"
+  if [ -n "$CATALOG_DB" ]; then cp "$CATALOG_DB" "$bin/codex.db.bak"; fi
   if [ -n "$HIST_DB" ]; then cp "$HIST_DB" "$bin/$(basename "$HIST_DB").bak"; fi
 
   sqlite3 "$STATE_DB" "SELECT rollout_path FROM threads WHERE $where;" | while read -r p; do
@@ -104,6 +137,12 @@ cmd_purge() {
     DELETE FROM thread_turns WHERE thread_id IN ($list);
     DELETE FROM thread_realtime_items WHERE thread_id IN ($list);"; fi
 
+  if [ -n "$CATALOG_DB" ]; then
+    sqlite3 "$CATALOG_DB" "DELETE FROM local_thread_catalog WHERE thread_id IN ($list);
+      DELETE FROM local_thread_catalog_scan_entries WHERE thread_id IN ($list);"
+  fi
+  dropped=$(catalog_prune)
+
   if [ -f "$INDEX" ]; then
     cp "$INDEX" "$bin/$(basename "$INDEX").bak"
     grep -v -F -f "$bin/ids.txt" "$INDEX" > "$INDEX.tmp" || true
@@ -111,7 +150,7 @@ cmd_purge() {
   fi
 
   find "$TRASH" -mindepth 1 -maxdepth 1 -type d -mtime "+$TRASH_DAYS" -exec rm -rf {} + 2>/dev/null || true
-  echo "purge: deleted $n chat(s); recoverable in $bin for $TRASH_DAYS day(s)"
+  echo "purge: deleted $n chat(s), dropped $dropped stale sidebar row(s); recoverable in $bin for $TRASH_DAYS day(s)"
 }
 
 cmd_run() {
@@ -161,6 +200,7 @@ cmd_status() {
     echo "to collect : $(sqlite3 "$STATE_DB" "SELECT count(*) FROM threads WHERE name LIKE '$(sq "$TITLE_PREFIX")%' AND archived=0 AND is_pinned=0 AND thread_section_id IS NULL;")"
     echo "to purge   : $(sqlite3 "$STATE_DB" "SELECT count(*) FROM threads WHERE thread_section_id='$(sq "$sid")' AND name LIKE '$(sq "$TITLE_PREFIX")%' AND is_pinned=0;")"
   fi
+  echo "stale rows : $(catalog_orphans) (sidebar catalog)"
   if [ -f "$PLIST" ]; then launchctl list | grep -q "$LABEL" && echo "schedule   : loaded" || echo "schedule   : plist present, not loaded"
   else echo "schedule   : not installed"; fi
 }

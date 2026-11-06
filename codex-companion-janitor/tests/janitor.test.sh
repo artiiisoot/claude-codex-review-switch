@@ -8,7 +8,7 @@ H=$(mktemp -d)
 trap 'rm -rf "$H"' EXIT
 export CODEX_HOME="$H"
 
-mkdir -p "$H/sessions"
+mkdir -p "$H/sessions" "$H/sqlite"
 sqlite3 "$H/state_5.sqlite" "
 CREATE TABLE thread_sections (id TEXT PRIMARY KEY, name TEXT NOT NULL, appearance TEXT);
 CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, title TEXT NOT NULL,
@@ -32,6 +32,19 @@ CREATE TABLE thread_items (thread_id TEXT, turn_id TEXT, item_id TEXT, PRIMARY K
 CREATE TABLE thread_turns (thread_id TEXT, turn_id TEXT, PRIMARY KEY (thread_id,turn_id));
 CREATE TABLE thread_realtime_items (thread_id TEXT, item_id TEXT, PRIMARY KEY (thread_id,item_id));
 INSERT INTO thread_items VALUES ('t1','x','i1'),('t3','x','i1');"
+# 사이드바 목록은 별도 DB(sqlite/codex.db)의 local_thread_catalog 에서 그려진다.
+sqlite3 "$H/sqlite/codex.db" "
+CREATE TABLE local_thread_catalog (host_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+  display_title TEXT NOT NULL, PRIMARY KEY (host_id, thread_id));
+CREATE TABLE local_thread_catalog_scan_entries (host_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+  removed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (host_id, thread_id));
+INSERT INTO local_thread_catalog VALUES
+  ('local','t1','Codex Companion Task: <task> review A'),
+  ('local','t2','codex companion task: <task> review B'),
+  ('local','t3','내 작업 세션'),
+  ('local','t8','Codex Companion 삭제'),
+  ('local','t9','Codex Companion Task: 이미 스레드가 없는 유령 행');"
+
 for i in 1 2 3 4 5 8; do echo '{}' > "$H/sessions/t$i.jsonl"; done
 for i in 1 2 3 4 5 8; do echo "{\"id\":\"t$i\",\"thread_name\":\"n\"}" >> "$H/session_index.jsonl"; done
 
@@ -50,7 +63,12 @@ DRY_RUN=1 sh "$J" purge >/dev/null
 assert "dry run changes nothing" "$(q "SELECT count(*) FROM threads;")" 6
 
 sh "$J" purge >/dev/null
+c() { sqlite3 "$H/sqlite/codex.db" "$1"; }
 assert "t1,t2 gone"        "$(q "SELECT count(*) FROM threads WHERE id IN ('t1','t2');")" 0
+assert "사이드바 행도 삭제" "$(c "SELECT count(*) FROM local_thread_catalog WHERE thread_id IN ('t1','t2');")" 0
+assert "유령 행 t9 정리"    "$(c "SELECT count(*) FROM local_thread_catalog WHERE thread_id='t9';")" 0
+assert "사이드바 t3 보존"   "$(c "SELECT count(*) FROM local_thread_catalog WHERE thread_id='t3';")" 1
+assert "사이드바 t8 보존"   "$(c "SELECT count(*) FROM local_thread_catalog WHERE thread_id='t8';")" 1
 assert "others remain"     "$(q "SELECT count(*) FROM threads;")" 4
 assert "t8 still there"    "$(q "SELECT count(*) FROM threads WHERE id='t8';")" 1
 assert "history pruned"    "$(sqlite3 "$H/thread_history_1.sqlite" "SELECT count(*) FROM thread_items WHERE thread_id='t1';")" 0

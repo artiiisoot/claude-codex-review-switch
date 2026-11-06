@@ -15,6 +15,9 @@ Codex CLI에 쌓이는 `Codex Companion Task:` 세션을 매일 자동으로 정
 - `state_*.sqlite`의 `threads`, `thread_attachments`, `thread_read_receipts`, `thread_spawn_edges` 행
 - `thread_history_*.sqlite`의 `thread_items`, `thread_turns`, `thread_realtime_items` 행
 - `~/.codex/session_index.jsonl`의 해당 줄
+- `~/.codex/sqlite/codex.db`의 `local_thread_catalog`, `local_thread_catalog_scan_entries` 행 — **사이드바 목록은 이 테이블에서 그려집니다.** 여기를 지우지 않으면 앱을 다시 켜도 목록이 남습니다.
+
+스레드가 이미 다른 경로로 사라졌는데 사이드바에만 남은 "유령 행"도 같이 정리합니다. `status`의 `stale rows`가 그 개수입니다.
 
 지우기 전에 rollout 파일과 두 DB 사본을 `~/.codex/.janitor-trash/<타임스탬프>/`로 옮겨 두고, `TRASH_DAYS`(기본 7일)이 지난 폴더는 다음 실행에서 정리합니다.
 
