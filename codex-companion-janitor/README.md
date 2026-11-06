@@ -18,7 +18,9 @@ Codex CLI에 쌓이는 `Codex Companion Task:` 세션을 매일 자동으로 정
 
 지우기 전에 rollout 파일과 두 DB 사본을 `~/.codex/.janitor-trash/<타임스탬프>/`로 옮겨 두고, `TRASH_DAYS`(기본 7일)이 지난 폴더는 다음 실행에서 정리합니다.
 
-**건드리지 않는 것**: 고정(pin)된 세션, 제목이 다른 세션, 사용자가 다른 섹션으로 옮긴 세션, archive된 세션.
+**건드리지 않는 것**: 고정(pin)된 세션, 이름이 다른 세션, 사용자가 다른 섹션으로 옮긴 세션, archive된 세션.
+
+판정은 사이드바에 보이는 이름(`threads.name`)으로만 합니다. 첫 사용자 메시지(`threads.title`)는 보지 않으므로, "codex companion task: …" 라고 물어본 본인 대화는 대상이 되지 않습니다.
 
 ## 설치
 
@@ -58,7 +60,7 @@ sh scripts/janitor.sh status
 |---|---|---|
 | `CODEX_HOME` | `~/.codex` | Codex 데이터 폴더 |
 | `SECTION_NAME` | `Codex Companion` | 대상 섹션 이름 |
-| `TITLE_PREFIX` | `Codex Companion Task:` | 수집/삭제 대상 제목 접두사 |
+| `TITLE_PREFIX` | `Codex Companion Task:` | 수집/삭제 대상 이름(`threads.name`) 접두사 |
 | `TRASH_DAYS` | `7` | 휴지통 보관 일수 |
 | `DRY_RUN` | — | `1`이면 purge가 삭제 대상만 출력 |
 | `FAKE_MINUTE` | — | `run`이 분기하는 분을 덮어씀 (테스트용) |
