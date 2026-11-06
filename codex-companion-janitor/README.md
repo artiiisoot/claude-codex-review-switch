@@ -60,7 +60,7 @@ sh scripts/janitor.sh status
 | `SECTION_NAME` | `Codex Companion` | 대상 섹션 이름 |
 | `TITLE_PREFIX` | `Codex Companion Task:` | 수집/삭제 대상 제목 접두사 |
 | `TRASH_DAYS` | `7` | 휴지통 보관 일수 |
-| `DRY_RUN` | — | `1` 이면 purge가 삭제 대상만 출력 |
+| `DRY_RUN` | — | `1`이면 purge가 삭제 대상만 출력 |
 | `FAKE_MINUTE` | — | `run`이 분기하는 분을 덮어씀 (테스트용) |
 
 ## 주의
