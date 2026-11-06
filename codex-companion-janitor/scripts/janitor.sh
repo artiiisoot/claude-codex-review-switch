@@ -101,15 +101,18 @@ cmd_purge() {
   where="thread_section_id = '$(sq "$sid")' AND name LIKE '$(sq "$TITLE_PREFIX")%' AND is_pinned = 0"
 
   ids=$(sqlite3 "$STATE_DB" "SELECT id FROM threads WHERE $where;")
-  [ -n "$ids" ] || { echo "purge: nothing to delete"; return 0; }
-  n=$(printf '%s\n' "$ids" | wc -l | tr -d ' ')
+  if [ -n "$ids" ]; then n=$(printf '%s\n' "$ids" | wc -l | tr -d ' '); else n=0; fi
+  orphans=$(catalog_orphans)
 
   if [ "${DRY_RUN:-}" = 1 ]; then
-    echo "purge (dry run): would delete $n chat(s):"
-    sqlite3 "$STATE_DB" "SELECT id || '  ' || name FROM threads WHERE $where;"
-    echo "purge (dry run): would drop $(catalog_orphans) stale sidebar row(s)"
+    echo "purge (dry run): would delete $n chat(s)"
+    if [ "$n" -gt 0 ]; then sqlite3 "$STATE_DB" "SELECT '  ' || id || '  ' || name FROM threads WHERE $where;"; fi
+    echo "purge (dry run): would drop $orphans stale sidebar row(s)"
     return 0
   fi
+
+  # Stale sidebar rows survive on their own, so purge still has work with n = 0.
+  if [ "$n" -eq 0 ] && [ "$orphans" -eq 0 ]; then echo "purge: nothing to delete"; return 0; fi
 
   stamp=$(date +%Y-%m-%d_%H%M%S)
   bin="$TRASH/$stamp"
@@ -120,34 +123,36 @@ cmd_purge() {
   if [ -n "$CATALOG_DB" ]; then cp "$CATALOG_DB" "$bin/codex.db.bak"; fi
   if [ -n "$HIST_DB" ]; then cp "$HIST_DB" "$bin/$(basename "$HIST_DB").bak"; fi
 
-  sqlite3 "$STATE_DB" "SELECT rollout_path FROM threads WHERE $where;" | while read -r p; do
-    [ -n "$p" ] && [ -f "$p" ] && mv "$p" "$bin/" || true
-  done
+  if [ "$n" -gt 0 ]; then
+    sqlite3 "$STATE_DB" "SELECT rollout_path FROM threads WHERE $where;" | while read -r p; do
+      [ -n "$p" ] && [ -f "$p" ] && mv "$p" "$bin/" || true
+    done
 
-  printf '%s\n' "$ids" > "$bin/ids.txt"
-  list=$(printf "'%s'," $ids | sed 's/,$//')
+    printf '%s\n' "$ids" > "$bin/ids.txt"
+    list=$(printf "'%s'," $ids | sed 's/,$//')
 
-  sqlite3 "$STATE_DB" "
-    DELETE FROM thread_attachments WHERE thread_id IN ($list);
-    DELETE FROM thread_read_receipts WHERE thread_id IN ($list);
-    DELETE FROM thread_spawn_edges WHERE child_thread_id IN ($list) OR parent_thread_id IN ($list);
-    DELETE FROM threads WHERE id IN ($list);"
-  if [ -n "$HIST_DB" ]; then sqlite3 "$HIST_DB" "
-    DELETE FROM thread_items WHERE thread_id IN ($list);
-    DELETE FROM thread_turns WHERE thread_id IN ($list);
-    DELETE FROM thread_realtime_items WHERE thread_id IN ($list);"; fi
+    sqlite3 "$STATE_DB" "
+      DELETE FROM thread_attachments WHERE thread_id IN ($list);
+      DELETE FROM thread_read_receipts WHERE thread_id IN ($list);
+      DELETE FROM thread_spawn_edges WHERE child_thread_id IN ($list) OR parent_thread_id IN ($list);
+      DELETE FROM threads WHERE id IN ($list);"
+    if [ -n "$HIST_DB" ]; then sqlite3 "$HIST_DB" "
+      DELETE FROM thread_items WHERE thread_id IN ($list);
+      DELETE FROM thread_turns WHERE thread_id IN ($list);
+      DELETE FROM thread_realtime_items WHERE thread_id IN ($list);"; fi
 
-  if [ -n "$CATALOG_DB" ]; then
-    sqlite3 "$CATALOG_DB" "DELETE FROM local_thread_catalog WHERE thread_id IN ($list);
-      DELETE FROM local_thread_catalog_scan_entries WHERE thread_id IN ($list);"
+    if [ -n "$CATALOG_DB" ]; then
+      sqlite3 "$CATALOG_DB" "DELETE FROM local_thread_catalog WHERE thread_id IN ($list);
+        DELETE FROM local_thread_catalog_scan_entries WHERE thread_id IN ($list);"
+    fi
+
+    if [ -f "$INDEX" ]; then
+      cp "$INDEX" "$bin/$(basename "$INDEX").bak"
+      grep -v -F -f "$bin/ids.txt" "$INDEX" > "$INDEX.tmp" || true
+      mv "$INDEX.tmp" "$INDEX"
+    fi
   fi
   dropped=$(catalog_prune)
-
-  if [ -f "$INDEX" ]; then
-    cp "$INDEX" "$bin/$(basename "$INDEX").bak"
-    grep -v -F -f "$bin/ids.txt" "$INDEX" > "$INDEX.tmp" || true
-    mv "$INDEX.tmp" "$INDEX"
-  fi
 
   find "$TRASH" -mindepth 1 -maxdepth 1 -type d -mtime "+$TRASH_DAYS" -exec rm -rf {} + 2>/dev/null || true
   echo "purge: deleted $n chat(s), dropped $dropped stale sidebar row(s); recoverable in $bin for $TRASH_DAYS day(s)"

@@ -97,4 +97,12 @@ FAKE_MINUTE=10 sh "$J" run >/dev/null
 assert "fresh purged"      "$(q "SELECT count(*) FROM threads WHERE id='t7';")" 0
 assert "survivors intact"  "$(q "SELECT count(*) FROM threads;")" 4
 
+# 스레드 쪽에 지울 게 없어도 사이드바에만 남은 유령 행은 정리한다.
+sqlite3 "$H/sqlite/codex.db" "INSERT INTO local_thread_catalog VALUES
+  ('local','t10','Codex Companion Task: 스레드 없는 유령 행');"
+assert "유령 행 준비"      "$(c "SELECT count(*) FROM local_thread_catalog WHERE thread_id='t10';")" 1
+sh "$J" purge | grep -q 'dropped 1 stale'
+assert "유령 행 t10 정리"  "$(c "SELECT count(*) FROM local_thread_catalog WHERE thread_id='t10';")" 0
+sh "$J" purge | grep -q 'nothing to delete'
+
 echo "all assertions passed"
