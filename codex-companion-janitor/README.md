@@ -2,8 +2,10 @@
 
 Codex CLI에 쌓이는 `Codex Companion Task:` 세션을 매일 자동으로 정리합니다.
 
-- **18:00** — 기본 Tasks/chats 에 있는 `Codex Companion Task:` 세션을 사이드바의 **Codex Companion** 섹션으로 옮깁니다.
+- **18:00** — 섹션에 남아 있는 세션을 먼저 지우고, 기본 Tasks/chats 에 있는 `Codex Companion Task:` 세션을 사이드바의 **Codex Companion** 섹션으로 옮깁니다.
 - **18:10** — 그 섹션에 있는 `Codex Companion Task:` 세션을 삭제합니다.
+
+18:00 에도 삭제를 먼저 돌리기 때문에, 맥이 꺼져 있거나 잠들어서 18:10 을 놓쳤을 때 남은 세션이 다음 날 수집 전에 정리됩니다.
 
 ## 삭제 범위
 
@@ -59,6 +61,7 @@ sh scripts/janitor.sh status
 | `TITLE_PREFIX` | `Codex Companion Task:` | 수집/삭제 대상 제목 접두사 |
 | `TRASH_DAYS` | `7` | 휴지통 보관 일수 |
 | `DRY_RUN` | — | `1` 이면 purge 가 삭제 대상만 출력 |
+| `FAKE_MINUTE` | — | `run` 이 분기하는 분을 덮어씀 (테스트용) |
 
 ## 주의
 
