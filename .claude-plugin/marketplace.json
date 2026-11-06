@@ -1,5 +1,16 @@
 {
   "name": "artiiisoot",
-  "owner": { "name": "artiiisoot" },
-  "plugins": [{ "name": "codex-review-switch", "source": "./" }]
+  "owner": {
+    "name": "artiiisoot"
+  },
+  "plugins": [
+    {
+      "name": "codex-review-switch",
+      "source": "./"
+    },
+    {
+      "name": "codex-companion-janitor",
+      "source": "./codex-companion-janitor"
+    }
+  ]
 }
