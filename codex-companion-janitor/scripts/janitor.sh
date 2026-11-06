@@ -9,7 +9,9 @@
 #   janitor.sh status    section id, pending counts, job state
 #
 # Env: CODEX_HOME (default ~/.codex), SECTION_NAME (default "Codex Companion"),
-#      TITLE_PREFIX (default "Codex Companion Task:"), TRASH_DAYS (default 7),
+#      TITLE_PREFIX (default "Codex Companion Task:"; matched against the
+#        threads.name column, which is what the Codex sidebar shows),
+#      TRASH_DAYS (default 7),
 #      DRY_RUN=1 to print what purge would do and change nothing,
 #      FAKE_MINUTE to override the minute "run" branches on (tests).
 set -eu
@@ -50,13 +52,13 @@ cmd_collect() {
   # The section is the user's; never recreate it silently.
   [ -n "$sid" ] || die "section \"$SECTION_NAME\" not found in Codex - create it in the app first"
   before=$(sqlite3 "$STATE_DB" "SELECT count(*) FROM threads
-      WHERE title LIKE '$(sq "$TITLE_PREFIX")%' AND archived = 0
+      WHERE name LIKE '$(sq "$TITLE_PREFIX")%' AND archived = 0
         AND is_pinned = 0 AND thread_section_id IS NULL;")
   if [ "$before" -eq 0 ]; then echo "collect: nothing to move"; return 0; fi
   sqlite3 "$STATE_DB" "UPDATE threads
       SET thread_section_id = '$(sq "$sid")',
           section_entered_at_ms = CAST(strftime('%s','now') AS INTEGER) * 1000
-      WHERE title LIKE '$(sq "$TITLE_PREFIX")%' AND archived = 0
+      WHERE name LIKE '$(sq "$TITLE_PREFIX")%' AND archived = 0
         AND is_pinned = 0 AND thread_section_id IS NULL;"
   echo "collect: moved $before chat(s) into \"$SECTION_NAME\""
 }
@@ -65,7 +67,7 @@ cmd_purge() {
   find_dbs
   sid=$(section_id)
   [ -n "$sid" ] || die "section \"$SECTION_NAME\" not found in Codex"
-  where="thread_section_id = '$(sq "$sid")' AND title LIKE '$(sq "$TITLE_PREFIX")%' AND is_pinned = 0"
+  where="thread_section_id = '$(sq "$sid")' AND name LIKE '$(sq "$TITLE_PREFIX")%' AND is_pinned = 0"
 
   ids=$(sqlite3 "$STATE_DB" "SELECT id FROM threads WHERE $where;")
   [ -n "$ids" ] || { echo "purge: nothing to delete"; return 0; }
@@ -73,7 +75,7 @@ cmd_purge() {
 
   if [ "${DRY_RUN:-}" = 1 ]; then
     echo "purge (dry run): would delete $n chat(s):"
-    sqlite3 "$STATE_DB" "SELECT id || '  ' || title FROM threads WHERE $where;"
+    sqlite3 "$STATE_DB" "SELECT id || '  ' || name FROM threads WHERE $where;"
     return 0
   fi
 
@@ -156,8 +158,8 @@ cmd_status() {
   echo "state db   : $STATE_DB"
   echo "section    : ${sid:-(missing)} \"$SECTION_NAME\""
   if [ -n "$sid" ]; then
-    echo "to collect : $(sqlite3 "$STATE_DB" "SELECT count(*) FROM threads WHERE title LIKE '$(sq "$TITLE_PREFIX")%' AND archived=0 AND is_pinned=0 AND thread_section_id IS NULL;")"
-    echo "to purge   : $(sqlite3 "$STATE_DB" "SELECT count(*) FROM threads WHERE thread_section_id='$(sq "$sid")' AND title LIKE '$(sq "$TITLE_PREFIX")%' AND is_pinned=0;")"
+    echo "to collect : $(sqlite3 "$STATE_DB" "SELECT count(*) FROM threads WHERE name LIKE '$(sq "$TITLE_PREFIX")%' AND archived=0 AND is_pinned=0 AND thread_section_id IS NULL;")"
+    echo "to purge   : $(sqlite3 "$STATE_DB" "SELECT count(*) FROM threads WHERE thread_section_id='$(sq "$sid")' AND name LIKE '$(sq "$TITLE_PREFIX")%' AND is_pinned=0;")"
   fi
   if [ -f "$PLIST" ]; then launchctl list | grep -q "$LABEL" && echo "schedule   : loaded" || echo "schedule   : plist present, not loaded"
   else echo "schedule   : not installed"; fi
