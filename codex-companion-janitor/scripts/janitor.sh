@@ -58,11 +58,18 @@ section_id() {
 ensure_section() {
   sid=$(section_id)
   if [ -z "$sid" ]; then
-    sid=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
-    [ -n "$sid" ] || die "uuidgen not found; create the \"$SECTION_NAME\" section in Codex yourself"
+    new=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
+    [ -n "$new" ] || die "uuidgen not found; create the \"$SECTION_NAME\" section in Codex yourself"
+    # thread_sections.name has no UNIQUE constraint and the Stop hook runs per
+    # session, so two sessions ending together would each insert one. The guarded
+    # INSERT is a single statement: sqlite's write lock makes it atomic.
     sqlite3 "$STATE_DB" \
-      "INSERT INTO thread_sections (id, name) VALUES ('$(sq "$sid")', '$(sq "$SECTION_NAME")');"
-    echo "created section \"$SECTION_NAME\" ($sid)" >&2
+      "INSERT INTO thread_sections (id, name)
+       SELECT '$(sq "$new")', '$(sq "$SECTION_NAME")'
+       WHERE NOT EXISTS (SELECT 1 FROM thread_sections WHERE name = '$(sq "$SECTION_NAME")');"
+    sid=$(section_id)   # ours, or whichever process won the race
+    [ -n "$sid" ] || die "could not create section \"$SECTION_NAME\""
+    if [ "$sid" = "$new" ]; then echo "created section \"$SECTION_NAME\" ($sid)" >&2; fi
   fi
   printf '%s' "$sid"
 }
@@ -186,10 +193,7 @@ cmd_run() {
 }
 
 cmd_install() {
-  find_dbs
-  ensure_section >/dev/null
-
-  # Validate before touching the plist: a bad hour would otherwise overwrite a
+  # Validate before touching anything: a bad hour would otherwise overwrite a
   # working schedule with one launchd refuses to load.
   case "$RUN_HOUR" in
     ''|*[!0-9]*) die "RUN_HOUR must be an integer 0-23, got \"$RUN_HOUR\"" ;;
@@ -199,6 +203,9 @@ cmd_install() {
   RUN_HOUR=$(printf '%s' "$RUN_HOUR" | sed 's/^0*//')
   [ -n "$RUN_HOUR" ] || RUN_HOUR=0
   [ "$RUN_HOUR" -le 23 ] || die "RUN_HOUR must be an integer 0-23, got \"$RUN_HOUR\""
+
+  find_dbs
+  ensure_section >/dev/null
 
   mkdir -p "$(dirname "$PLIST")"
   cat > "$PLIST" <<PLISTEOF

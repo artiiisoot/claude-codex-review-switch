@@ -138,4 +138,18 @@ CODEX_HOME="$H2" sh "$J" collect >/dev/null 2>&1
 assert "섹션 자동 생성"   "$(q2 "SELECT name FROM thread_sections;")" "Codex Companion"
 assert "생성 후 수집"     "$(q2 "SELECT count(*) FROM threads WHERE thread_section_id IS NOT NULL;")" 1
 
+# 훅은 세션마다 돈다: 여러 번 돌아도 같은 이름의 섹션이 하나뿐이어야 한다.
+for _ in 1 2 3; do CODEX_HOME="$H2" sh "$J" collect >/dev/null 2>&1; done
+assert "섹션 중복 없음"   "$(q2 "SELECT count(*) FROM thread_sections WHERE name='Codex Companion';")" 1
+# 동시 실행도 한 개만 남아야 한다.
+sqlite3 "$H2/state_5.sqlite" "DELETE FROM thread_sections; UPDATE threads SET thread_section_id=NULL;"
+for _ in 1 2 3 4 5; do CODEX_HOME="$H2" sh "$J" collect >/dev/null 2>&1 & done
+wait
+assert "동시 실행도 하나" "$(q2 "SELECT count(*) FROM thread_sections WHERE name='Codex Companion';")" 1
+
+# 잘못된 RUN_HOUR 는 섹션도 만들지 않고 죽어야 한다.
+sqlite3 "$H2/state_5.sqlite" "DELETE FROM thread_sections;"
+RUN_HOUR=99 CODEX_HOME="$H2" HOME="$H" sh "$J" install >/dev/null 2>&1 || true
+assert "검증 실패 시 무변경" "$(q2 "SELECT count(*) FROM thread_sections;")" 0
+
 echo "all assertions passed"
