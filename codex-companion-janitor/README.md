@@ -13,6 +13,8 @@ Codex CLI에 쌓이는 `Codex Companion Task:` 세션을 매일 자동으로 정
 RUN_HOUR=18 sh scripts/janitor.sh install
 ```
 
+`RUN_HOUR`가 0–23의 정수가 아니면 `install`은 plist를 건드리지 않고 중단합니다. 기존 예약이 깨진 파일로 덮어써지지 않습니다.
+
 맥이 그 시각에 꺼져 있으면 launchd는 건너뛴 실행을 부팅 후 따라잡지 않습니다. 다음 실행 때 밀린 세션까지 한꺼번에 정리됩니다.
 
 ## 삭제 범위
@@ -73,7 +75,7 @@ sh scripts/janitor.sh status
 | `SECTION_NAME` | `Codex Companion` | 대상 섹션 이름 |
 | `TITLE_PREFIX` | `Codex Companion Task:` | 수집/삭제 대상 이름(`threads.name`) 접두사 |
 | `TRASH_DAYS` | `7` | 휴지통 보관 일수 |
-| `RUN_HOUR` | `9` | 수집/삭제 시각(시). `install` 때 plist에 기록됨 |
+| `RUN_HOUR` | `9` | 수집/삭제 시각(시, 0–23). `install` 때 plist에 기록됨 |
 | `DRY_RUN` | — | `1`이면 purge가 삭제 대상만 출력 |
 | `FAKE_MINUTE` | — | `run`이 분기하는 분을 덮어씀 (테스트용) |
 

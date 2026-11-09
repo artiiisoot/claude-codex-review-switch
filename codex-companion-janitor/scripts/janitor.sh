@@ -169,6 +169,17 @@ cmd_run() {
 }
 
 cmd_install() {
+  # Validate before touching the plist: a bad hour would otherwise overwrite a
+  # working schedule with one launchd refuses to load.
+  case "$RUN_HOUR" in
+    ''|*[!0-9]*) die "RUN_HOUR must be an integer 0-23, got \"$RUN_HOUR\"" ;;
+  esac
+  # Strip leading zeros before the range check: "09" is octal to $(()) and not
+  # valid plist integer syntax either.
+  RUN_HOUR=$(printf '%s' "$RUN_HOUR" | sed 's/^0*//')
+  [ -n "$RUN_HOUR" ] || RUN_HOUR=0
+  [ "$RUN_HOUR" -le 23 ] || die "RUN_HOUR must be an integer 0-23, got \"$RUN_HOUR\""
+
   mkdir -p "$(dirname "$PLIST")"
   cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>

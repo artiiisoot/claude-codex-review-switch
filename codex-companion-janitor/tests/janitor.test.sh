@@ -105,4 +105,21 @@ sh "$J" purge | grep -q 'dropped 1 stale'
 assert "유령 행 t10 정리"  "$(c "SELECT count(*) FROM local_thread_catalog WHERE thread_id='t10';")" 0
 sh "$J" purge | grep -q 'nothing to delete'
 
+# install 은 plist 를 쓰기 전에 RUN_HOUR 를 검증한다. 잘못된 값이면 기존 예약을
+# 덮어쓰지 않고 죽어야 한다.
+# launchctl 을 스텁으로 막는다. 막지 않으면 install 이 레이블이 같은 실제
+# launchd 작업을 언로드하고 테스트용 경로로 다시 등록해 버린다.
+mkdir -p "$H/bin"
+printf '#!/bin/sh\nexit 0\n' > "$H/bin/launchctl"; chmod +x "$H/bin/launchctl"
+PATH="$H/bin:$PATH"; export PATH
+PL="$H/Library/LaunchAgents/com.artiiisoot.codex-companion-janitor.plist"
+mkdir -p "$(dirname "$PL")"; echo "기존 예약" > "$PL"
+for bad in 25 -1 abc 1e2; do
+  RUN_HOUR="$bad" HOME="$H" sh "$J" install 2>&1 | grep -q 'RUN_HOUR must be an integer 0-23' \
+    || { echo "FAIL: RUN_HOUR=$bad 가 거부되지 않음" >&2; exit 1; }
+done
+assert "잘못된 값에 plist 보존" "$(cat "$PL")" "기존 예약"
+RUN_HOUR=09 HOME="$H" sh "$J" install >/dev/null 2>&1
+assert "앞자리 0 허용"          "$(grep -c '<integer>9</integer>' "$PL")" 2
+
 echo "all assertions passed"
