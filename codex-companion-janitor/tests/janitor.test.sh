@@ -122,4 +122,20 @@ assert "잘못된 값에 plist 보존" "$(cat "$PL")" "기존 예약"
 RUN_HOUR=09 HOME="$H" sh "$J" install >/dev/null 2>&1
 assert "앞자리 0 허용"          "$(grep -c '<integer>9</integer>' "$PL")" 2
 
+# 섹션이 없으면 collect 가 직접 만든다 (설치 직후 수동 준비가 필요 없게).
+H2=$(mktemp -d); trap 'rm -rf "$H" "$H2"' EXIT
+mkdir -p "$H2/sessions" "$H2/sqlite"
+sqlite3 "$H2/state_5.sqlite" "
+CREATE TABLE thread_sections (id TEXT PRIMARY KEY, name TEXT NOT NULL, appearance TEXT);
+CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, title TEXT NOT NULL,
+  name TEXT, archived INTEGER NOT NULL DEFAULT 0, is_pinned INTEGER NOT NULL DEFAULT 0,
+  thread_section_id TEXT, section_entered_at_ms INTEGER);
+INSERT INTO threads (id,rollout_path,title,name) VALUES
+  ('a1','$H2/sessions/a1.jsonl','<task> x','Codex Companion Task: <task> x');"
+q2() { sqlite3 "$H2/state_5.sqlite" "$1"; }
+assert "섹션 없음 확인"   "$(q2 "SELECT count(*) FROM thread_sections;")" 0
+CODEX_HOME="$H2" sh "$J" collect >/dev/null 2>&1
+assert "섹션 자동 생성"   "$(q2 "SELECT name FROM thread_sections;")" "Codex Companion"
+assert "생성 후 수집"     "$(q2 "SELECT count(*) FROM threads WHERE thread_section_id IS NOT NULL;")" 1
+
 echo "all assertions passed"

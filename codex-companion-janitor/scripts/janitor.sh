@@ -53,6 +53,20 @@ section_id() {
     "SELECT id FROM thread_sections WHERE name = '$(sq "$SECTION_NAME")' LIMIT 1;"
 }
 
+# Create the sidebar section if it is not there, so a fresh machine needs no
+# manual setup in the Codex app. Returns its id either way.
+ensure_section() {
+  sid=$(section_id)
+  if [ -z "$sid" ]; then
+    sid=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
+    [ -n "$sid" ] || die "uuidgen not found; create the \"$SECTION_NAME\" section in Codex yourself"
+    sqlite3 "$STATE_DB" \
+      "INSERT INTO thread_sections (id, name) VALUES ('$(sq "$sid")', '$(sq "$SECTION_NAME")');"
+    echo "created section \"$SECTION_NAME\" ($sid)" >&2
+  fi
+  printf '%s' "$sid"
+}
+
 # Catalog rows whose thread is already gone from the state DB: what the sidebar
 # still shows after a thread was deleted anywhere else.
 catalog_orphans() {
@@ -81,9 +95,7 @@ catalog_prune() {
 
 cmd_collect() {
   find_dbs
-  sid=$(section_id)
-  # The section is the user's; never recreate it silently.
-  [ -n "$sid" ] || die "section \"$SECTION_NAME\" not found in Codex - create it in the app first"
+  sid=$(ensure_section)
   before=$(sqlite3 "$STATE_DB" "SELECT count(*) FROM threads
       WHERE name LIKE '$(sq "$TITLE_PREFIX")%' AND archived = 0
         AND is_pinned = 0 AND thread_section_id IS NULL;")
@@ -99,7 +111,12 @@ cmd_collect() {
 cmd_purge() {
   find_dbs
   sid=$(section_id)
-  [ -n "$sid" ] || die "section \"$SECTION_NAME\" not found in Codex"
+  # No section means nothing was ever collected: still prune stale sidebar rows.
+  if [ -z "$sid" ]; then
+    dropped=$(catalog_prune)
+    echo "purge: nothing to delete, dropped $dropped stale sidebar row(s)"
+    return 0
+  fi
   where="thread_section_id = '$(sq "$sid")' AND name LIKE '$(sq "$TITLE_PREFIX")%' AND is_pinned = 0"
 
   ids=$(sqlite3 "$STATE_DB" "SELECT id FROM threads WHERE $where;")
@@ -169,6 +186,9 @@ cmd_run() {
 }
 
 cmd_install() {
+  find_dbs
+  ensure_section >/dev/null
+
   # Validate before touching the plist: a bad hour would otherwise overwrite a
   # working schedule with one launchd refuses to load.
   case "$RUN_HOUR" in
