@@ -3,8 +3,8 @@
 #
 #   janitor.sh collect   move "Codex Companion Task:" chats into the section
 #   janitor.sh purge     delete the chats sitting in that section
-#   janitor.sh run       purge, then collect when before :05 (what launchd calls)
-#   janitor.sh install   write the launchd job (HH:00 + HH:10 daily, HH = RUN_HOUR)
+#   janitor.sh run       purge (what launchd calls)
+#   janitor.sh install   write the launchd job (HH:10 daily, HH = RUN_HOUR)
 #   janitor.sh uninstall remove the launchd job
 #   janitor.sh status    section id, pending counts, job state
 #
@@ -13,8 +13,7 @@
 #        threads.name column, which is what the Codex sidebar shows),
 #      TRASH_DAYS (default 7), RUN_HOUR (default 9; baked into the plist by
 #        "install", so re-run it after changing the hour),
-#      DRY_RUN=1 to print what purge would do and change nothing,
-#      FAKE_MINUTE to override the minute "run" branches on (tests).
+#      DRY_RUN=1 to print what purge would do and change nothing.
 set -eu
 
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -185,11 +184,8 @@ cmd_purge() {
 }
 
 cmd_run() {
-  # One launchd job for both firings: before :05 is the HH:00 one, after is HH:10.
-  # Purge runs first either way, so leftovers from a missed HH:10 (laptop asleep,
-  # machine off) are cleared before today's batch is collected.
+  # Collecting is the Stop/SessionEnd hook's job now, so the daily job only purges.
   cmd_purge
-  if [ "${FAKE_MINUTE:-$(date +%M)}" -lt 5 ]; then cmd_collect; fi
 }
 
 cmd_install() {
@@ -217,7 +213,6 @@ cmd_install() {
   <array><string>/bin/sh</string><string>$SELF</string><string>run</string></array>
   <key>StartCalendarInterval</key>
   <array>
-    <dict><key>Hour</key><integer>$RUN_HOUR</integer><key>Minute</key><integer>0</integer></dict>
     <dict><key>Hour</key><integer>$RUN_HOUR</integer><key>Minute</key><integer>10</integer></dict>
   </array>
   <key>StandardOutPath</key><string>$CODEX_HOME/.janitor.log</string>
@@ -226,7 +221,7 @@ cmd_install() {
 PLISTEOF
   launchctl unload "$PLIST" 2>/dev/null || true
   launchctl load "$PLIST"
-  echo "installed: $LABEL (${RUN_HOUR}:00 collect, ${RUN_HOUR}:10 purge) -> $PLIST"
+  echo "installed: $LABEL (${RUN_HOUR}:10 purge) -> $PLIST"
 }
 
 cmd_uninstall() {
