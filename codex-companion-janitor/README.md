@@ -2,10 +2,18 @@
 
 Codex CLI에 쌓이는 `Codex Companion Task:` 세션을 매일 자동으로 정리합니다.
 
-- **18:00** — 섹션에 남아 있는 세션을 먼저 지우고, 기본 Tasks/chats에 있는 `Codex Companion Task:` 세션을 사이드바의 **Codex Companion** 섹션으로 옮깁니다.
-- **18:10** — 그 섹션에 있는 `Codex Companion Task:` 세션을 삭제합니다.
+- **09:00** — 섹션에 남아 있는 세션을 먼저 지우고, 기본 Tasks/chats에 있는 `Codex Companion Task:` 세션을 사이드바의 **Codex Companion** 섹션으로 옮깁니다.
+- **09:10** — 그 섹션에 있는 `Codex Companion Task:` 세션을 삭제합니다.
 
-18:00에도 삭제를 먼저 돌리기 때문에, 맥이 꺼져 있거나 잠들어서 18:10을 놓쳤을 때 남은 세션이 다음 날 수집 전에 정리됩니다.
+09:00에도 삭제를 먼저 돌리기 때문에, 맥이 꺼져 있거나 잠들어서 09:10을 놓쳤을 때 남은 세션이 다음 날 수집 전에 정리됩니다.
+
+시각은 `RUN_HOUR`로 바꿉니다. plist에 구워지므로 바꾼 뒤 `install`을 다시 실행해야 합니다.
+
+```bash
+RUN_HOUR=18 sh scripts/janitor.sh install
+```
+
+맥이 그 시각에 꺼져 있으면 launchd는 건너뛴 실행을 부팅 후 따라잡지 않습니다. 다음 실행 때 밀린 세션까지 한꺼번에 정리됩니다.
 
 ## 삭제 범위
 
@@ -65,6 +73,7 @@ sh scripts/janitor.sh status
 | `SECTION_NAME` | `Codex Companion` | 대상 섹션 이름 |
 | `TITLE_PREFIX` | `Codex Companion Task:` | 수집/삭제 대상 이름(`threads.name`) 접두사 |
 | `TRASH_DAYS` | `7` | 휴지통 보관 일수 |
+| `RUN_HOUR` | `9` | 수집/삭제 시각(시). `install` 때 plist에 기록됨 |
 | `DRY_RUN` | — | `1`이면 purge가 삭제 대상만 출력 |
 | `FAKE_MINUTE` | — | `run`이 분기하는 분을 덮어씀 (테스트용) |
 
