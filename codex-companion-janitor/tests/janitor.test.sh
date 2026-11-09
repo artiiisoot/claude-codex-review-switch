@@ -81,21 +81,18 @@ assert "trash holds copy"  "$(find "$H/.janitor-trash" -name 't1.jsonl' | wc -l 
 
 sh "$J" purge | grep -q 'nothing to delete'
 
-# run at :00 purges leftovers from a missed 18:10 first, then collects today's batch.
+# run 은 삭제만 한다. 수집은 Stop/SessionEnd 훅이 맡는다.
 sqlite3 "$H/state_5.sqlite" "
 INSERT INTO threads (id,rollout_path,title,name,thread_section_id) VALUES
   ('t6','$H/sessions/t6.jsonl','<task> leftover','Codex Companion Task: leftover','sec-1');
 INSERT INTO threads (id,rollout_path,title,name) VALUES
   ('t7','$H/sessions/t7.jsonl','<task> fresh','Codex Companion Task: fresh');"
 echo '{}' > "$H/sessions/t6.jsonl"; echo '{}' > "$H/sessions/t7.jsonl"
-FAKE_MINUTE=0 sh "$J" run >/dev/null
-assert "leftover purged"   "$(q "SELECT count(*) FROM threads WHERE id='t6';")" 0
-assert "fresh collected"   "$(q "SELECT thread_section_id FROM threads WHERE id='t7';")" sec-1
-
-# run at :10 only purges.
-FAKE_MINUTE=10 sh "$J" run >/dev/null
-assert "fresh purged"      "$(q "SELECT count(*) FROM threads WHERE id='t7';")" 0
-assert "survivors intact"  "$(q "SELECT count(*) FROM threads;")" 4
+sh "$J" run >/dev/null
+assert "섹션 안 t6 삭제"   "$(q "SELECT count(*) FROM threads WHERE id='t6';")" 0
+assert "섹션 밖 t7 보존"   "$(q "SELECT count(*) FROM threads WHERE id='t7' AND thread_section_id IS NULL;")" 1
+assert "run 은 수집 안 함" "$(q "SELECT count(*) FROM threads WHERE thread_section_id='sec-1';")" 0
+assert "survivors intact"  "$(q "SELECT count(*) FROM threads;")" 5
 
 # 스레드 쪽에 지울 게 없어도 사이드바에만 남은 유령 행은 정리한다.
 sqlite3 "$H/sqlite/codex.db" "INSERT INTO local_thread_catalog VALUES
@@ -120,6 +117,36 @@ for bad in 25 -1 abc 1e2; do
 done
 assert "잘못된 값에 plist 보존" "$(cat "$PL")" "기존 예약"
 RUN_HOUR=09 HOME="$H" sh "$J" install >/dev/null 2>&1
-assert "앞자리 0 허용"          "$(grep -c '<integer>9</integer>' "$PL")" 2
+assert "앞자리 0 허용"          "$(grep -c '<integer>9</integer>' "$PL")" 1
+
+# 섹션이 없으면 collect 가 직접 만든다 (설치 직후 수동 준비가 필요 없게).
+H2=$(mktemp -d); trap 'rm -rf "$H" "$H2"' EXIT
+mkdir -p "$H2/sessions" "$H2/sqlite"
+sqlite3 "$H2/state_5.sqlite" "
+CREATE TABLE thread_sections (id TEXT PRIMARY KEY, name TEXT NOT NULL, appearance TEXT);
+CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, title TEXT NOT NULL,
+  name TEXT, archived INTEGER NOT NULL DEFAULT 0, is_pinned INTEGER NOT NULL DEFAULT 0,
+  thread_section_id TEXT, section_entered_at_ms INTEGER);
+INSERT INTO threads (id,rollout_path,title,name) VALUES
+  ('a1','$H2/sessions/a1.jsonl','<task> x','Codex Companion Task: <task> x');"
+q2() { sqlite3 "$H2/state_5.sqlite" "$1"; }
+assert "섹션 없음 확인"   "$(q2 "SELECT count(*) FROM thread_sections;")" 0
+CODEX_HOME="$H2" sh "$J" collect >/dev/null 2>&1
+assert "섹션 자동 생성"   "$(q2 "SELECT name FROM thread_sections;")" "Codex Companion"
+assert "생성 후 수집"     "$(q2 "SELECT count(*) FROM threads WHERE thread_section_id IS NOT NULL;")" 1
+
+# 훅은 세션마다 돈다: 여러 번 돌아도 같은 이름의 섹션이 하나뿐이어야 한다.
+for _ in 1 2 3; do CODEX_HOME="$H2" sh "$J" collect >/dev/null 2>&1; done
+assert "섹션 중복 없음"   "$(q2 "SELECT count(*) FROM thread_sections WHERE name='Codex Companion';")" 1
+# 동시 실행도 한 개만 남아야 한다.
+sqlite3 "$H2/state_5.sqlite" "DELETE FROM thread_sections; UPDATE threads SET thread_section_id=NULL;"
+for _ in 1 2 3 4 5; do CODEX_HOME="$H2" sh "$J" collect >/dev/null 2>&1 & done
+wait
+assert "동시 실행도 하나" "$(q2 "SELECT count(*) FROM thread_sections WHERE name='Codex Companion';")" 1
+
+# 잘못된 RUN_HOUR 는 섹션도 만들지 않고 죽어야 한다.
+sqlite3 "$H2/state_5.sqlite" "DELETE FROM thread_sections;"
+RUN_HOUR=99 CODEX_HOME="$H2" HOME="$H" sh "$J" install >/dev/null 2>&1 || true
+assert "검증 실패 시 무변경" "$(q2 "SELECT count(*) FROM thread_sections;")" 0
 
 echo "all assertions passed"

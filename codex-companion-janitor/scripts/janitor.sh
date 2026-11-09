@@ -3,8 +3,8 @@
 #
 #   janitor.sh collect   move "Codex Companion Task:" chats into the section
 #   janitor.sh purge     delete the chats sitting in that section
-#   janitor.sh run       purge, then collect when before :05 (what launchd calls)
-#   janitor.sh install   write the launchd job (HH:00 + HH:10 daily, HH = RUN_HOUR)
+#   janitor.sh run       purge (what launchd calls)
+#   janitor.sh install   write the launchd job (HH:10 daily, HH = RUN_HOUR)
 #   janitor.sh uninstall remove the launchd job
 #   janitor.sh status    section id, pending counts, job state
 #
@@ -13,8 +13,7 @@
 #        threads.name column, which is what the Codex sidebar shows),
 #      TRASH_DAYS (default 7), RUN_HOUR (default 9; baked into the plist by
 #        "install", so re-run it after changing the hour),
-#      DRY_RUN=1 to print what purge would do and change nothing,
-#      FAKE_MINUTE to override the minute "run" branches on (tests).
+#      DRY_RUN=1 to print what purge would do and change nothing.
 set -eu
 
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -53,6 +52,27 @@ section_id() {
     "SELECT id FROM thread_sections WHERE name = '$(sq "$SECTION_NAME")' LIMIT 1;"
 }
 
+# Create the sidebar section if it is not there, so a fresh machine needs no
+# manual setup in the Codex app. Returns its id either way.
+ensure_section() {
+  sid=$(section_id)
+  if [ -z "$sid" ]; then
+    new=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
+    [ -n "$new" ] || die "uuidgen not found; create the \"$SECTION_NAME\" section in Codex yourself"
+    # thread_sections.name has no UNIQUE constraint and the Stop hook runs per
+    # session, so two sessions ending together would each insert one. The guarded
+    # INSERT is a single statement: sqlite's write lock makes it atomic.
+    sqlite3 "$STATE_DB" \
+      "INSERT INTO thread_sections (id, name)
+       SELECT '$(sq "$new")', '$(sq "$SECTION_NAME")'
+       WHERE NOT EXISTS (SELECT 1 FROM thread_sections WHERE name = '$(sq "$SECTION_NAME")');"
+    sid=$(section_id)   # ours, or whichever process won the race
+    [ -n "$sid" ] || die "could not create section \"$SECTION_NAME\""
+    if [ "$sid" = "$new" ]; then echo "created section \"$SECTION_NAME\" ($sid)" >&2; fi
+  fi
+  printf '%s' "$sid"
+}
+
 # Catalog rows whose thread is already gone from the state DB: what the sidebar
 # still shows after a thread was deleted anywhere else.
 catalog_orphans() {
@@ -81,9 +101,7 @@ catalog_prune() {
 
 cmd_collect() {
   find_dbs
-  sid=$(section_id)
-  # The section is the user's; never recreate it silently.
-  [ -n "$sid" ] || die "section \"$SECTION_NAME\" not found in Codex - create it in the app first"
+  sid=$(ensure_section)
   before=$(sqlite3 "$STATE_DB" "SELECT count(*) FROM threads
       WHERE name LIKE '$(sq "$TITLE_PREFIX")%' AND archived = 0
         AND is_pinned = 0 AND thread_section_id IS NULL;")
@@ -99,7 +117,12 @@ cmd_collect() {
 cmd_purge() {
   find_dbs
   sid=$(section_id)
-  [ -n "$sid" ] || die "section \"$SECTION_NAME\" not found in Codex"
+  # No section means nothing was ever collected: still prune stale sidebar rows.
+  if [ -z "$sid" ]; then
+    dropped=$(catalog_prune)
+    echo "purge: nothing to delete, dropped $dropped stale sidebar row(s)"
+    return 0
+  fi
   where="thread_section_id = '$(sq "$sid")' AND name LIKE '$(sq "$TITLE_PREFIX")%' AND is_pinned = 0"
 
   ids=$(sqlite3 "$STATE_DB" "SELECT id FROM threads WHERE $where;")
@@ -161,15 +184,12 @@ cmd_purge() {
 }
 
 cmd_run() {
-  # One launchd job for both firings: before :05 is the HH:00 one, after is HH:10.
-  # Purge runs first either way, so leftovers from a missed HH:10 (laptop asleep,
-  # machine off) are cleared before today's batch is collected.
+  # Collecting is the Stop/SessionEnd hook's job now, so the daily job only purges.
   cmd_purge
-  if [ "${FAKE_MINUTE:-$(date +%M)}" -lt 5 ]; then cmd_collect; fi
 }
 
 cmd_install() {
-  # Validate before touching the plist: a bad hour would otherwise overwrite a
+  # Validate before touching anything: a bad hour would otherwise overwrite a
   # working schedule with one launchd refuses to load.
   case "$RUN_HOUR" in
     ''|*[!0-9]*) die "RUN_HOUR must be an integer 0-23, got \"$RUN_HOUR\"" ;;
@@ -179,6 +199,9 @@ cmd_install() {
   RUN_HOUR=$(printf '%s' "$RUN_HOUR" | sed 's/^0*//')
   [ -n "$RUN_HOUR" ] || RUN_HOUR=0
   [ "$RUN_HOUR" -le 23 ] || die "RUN_HOUR must be an integer 0-23, got \"$RUN_HOUR\""
+
+  find_dbs
+  ensure_section >/dev/null
 
   mkdir -p "$(dirname "$PLIST")"
   cat > "$PLIST" <<PLISTEOF
@@ -190,7 +213,6 @@ cmd_install() {
   <array><string>/bin/sh</string><string>$SELF</string><string>run</string></array>
   <key>StartCalendarInterval</key>
   <array>
-    <dict><key>Hour</key><integer>$RUN_HOUR</integer><key>Minute</key><integer>0</integer></dict>
     <dict><key>Hour</key><integer>$RUN_HOUR</integer><key>Minute</key><integer>10</integer></dict>
   </array>
   <key>StandardOutPath</key><string>$CODEX_HOME/.janitor.log</string>
@@ -199,7 +221,7 @@ cmd_install() {
 PLISTEOF
   launchctl unload "$PLIST" 2>/dev/null || true
   launchctl load "$PLIST"
-  echo "installed: $LABEL (${RUN_HOUR}:00 collect, ${RUN_HOUR}:10 purge) -> $PLIST"
+  echo "installed: $LABEL (${RUN_HOUR}:10 purge) -> $PLIST"
 }
 
 cmd_uninstall() {
