@@ -149,4 +149,11 @@ sqlite3 "$H2/state_5.sqlite" "DELETE FROM thread_sections;"
 RUN_HOUR=99 CODEX_HOME="$H2" HOME="$H" sh "$J" install >/dev/null 2>&1 || true
 assert "검증 실패 시 무변경" "$(q2 "SELECT count(*) FROM thread_sections;")" 0
 
+# 플러그인 메타 파일이 비어 있거나 깨지면 훅이 등록되지 않는다. 눈에 안 띄므로 검사한다.
+for f in "$HERE/../.claude-plugin/plugin.json" "$HERE/../hooks/hooks.json"; do
+  [ -s "$f" ] || { echo "FAIL: $f 가 비어 있음" >&2; exit 1; }
+  python3 -c "import json,sys;json.load(open(sys.argv[1]))" "$f" \
+    || { echo "FAIL: $f 가 올바른 JSON 이 아님" >&2; exit 1; }
+done
+
 echo "all assertions passed"
